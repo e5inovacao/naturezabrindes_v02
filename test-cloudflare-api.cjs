@@ -1,5 +1,5 @@
 // Teste de endpoints de produção da Cloudflare Pages Function
-const { default: fetch } = require('node-fetch');
+// Em Node 18+ fetch é global; evitamos dependência de node-fetch
 
 const API_BASE = process.env.API_BASE || 'https://naturezabrindes.com.br/api';
 
@@ -44,4 +44,8 @@ async function check(path) {
   // Detalhe das respostas com erro
   for (const r of results.filter(x => !x.ok)) {
     console.log(`\n--- Detalhes ${r.name} ---`);
-    console.log(typeof r.body === 'string' ? r.body : JSON.stringify(r.body, null,
+    if (r.error) console.log('error:', r.error);
+    const bodyStr = typeof r.body === 'string' ? r.body : JSON.stringify(r.body, null, 2);
+    console.log(bodyStr || '(sem corpo)');
+  }
+})();

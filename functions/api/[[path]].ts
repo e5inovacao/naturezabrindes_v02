@@ -25,14 +25,28 @@ function handleCORS(request: Request) {
 
 // Create Supabase client
 function createSupabaseClient(env: any) {
-  const supabaseUrl = env.VITE_SUPABASE_URL;
-  const supabaseKey = env.VITE_SUPABASE_ANON_KEY;
-  
+  const supabaseUrl = env.SUPABASE_URL || env.VITE_SUPABASE_URL;
+  const anonKey = env.SUPABASE_ANON_KEY || env.VITE_SUPABASE_ANON_KEY;
+  const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
+
+  const supabaseKey = serviceRoleKey || anonKey;
+
   if (!supabaseUrl || !supabaseKey) {
-    throw new Error('Supabase configuration missing. Please configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Cloudflare Pages environment variables.');
+    throw new Error('Supabase configuration missing. Please configure SUPABASE_URL and SUPABASE_* keys (fallback to VITE_*).');
   }
-  
-  return createClient(supabaseUrl, supabaseKey);
+
+  console.log(`[${new Date().toISOString()}] [CLOUDFLARE_API] 🔑 Inicializando Supabase`, {
+    hasUrl: !!supabaseUrl,
+    usingServiceRole: !!serviceRoleKey,
+    usingAnon: !!anonKey && !serviceRoleKey
+  });
+
+  return createClient(supabaseUrl, supabaseKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  });
 }
 
 // API Response helper
@@ -79,7 +93,7 @@ async function handleProducts(request: Request, supabase: any, pathSegments: str
         const limit = parseInt(url.searchParams.get('limit') || '20');
         const sort = url.searchParams.get('sort') || 'name';
 
-        // Lista de produtos com filtros usando tabela correta `products`
+        // Lista de produtos com filtros usando tabela principal `products`
         let query = supabase.from('products').select('*', { count: 'exact' });
 
         // Apply filters
@@ -113,40 +127,125 @@ async function handleProducts(request: Request, supabase: any, pathSegments: str
         // Apply sorting
         query = query.order(sort);
 
-        const { data, error, count } = await query;
+        try {
+          const { data, error, count } = await query;
 
-        if (error) throw error;
+          if (error) throw error;
 
-        return apiResponse({
-          success: true,
-          data: {
-            items: data || [],
-            pagination: {
-              currentPage: page,
-              totalPages: Math.ceil((count || 0) / limit),
-              totalItems: count || 0,
-              itemsPerPage: limit,
-              hasNextPage: page * limit < (count || 0),
-              hasPrevPage: page > 1,
+          return apiResponse({
+            success: true,
+            data: {
+              items: data || [],
+              pagination: {
+                currentPage: page,
+                totalPages: Math.ceil((count || 0) / limit),
+                totalItems: count || 0,
+                itemsPerPage: limit,
+                hasNextPage: page * limit < (count || 0),
+                hasPrevPage: page > 1,
+              },
             },
-          },
-        });
+          });
+        } catch (primaryError) {
+          console.warn(`[${new Date().toISOString()}] [CLOUDFLARE_API] ⚠️ Fallback de produtos acionado`, {
+            error: primaryError instanceof Error ? primaryError.message : primaryError,
+          });
+
+          // Fallback: usar tabela ecologic_products_site com mapeamento simples
+          let ecoQuery = supabase.from('ecologic_products_site').select('*', { count: 'exact' });
+
+          if (category) {
+            ecoQuery = ecoQuery.eq('categoria', category);
+          }
+          if (search) {
+            ecoQuery = ecoQuery.or(`titulo.ilike.%${search}%,descricao.ilike.%${search}%`);
+          }
+
+          const ecoFrom = (page - 1) * limit;
+          const ecoTo = ecoFrom + limit - 1;
+          ecoQuery = ecoQuery.range(ecoFrom, ecoTo).order('titulo', { ascending: true });
+
+          const { data: ecoData, error: ecoError, count: ecoCount } = await ecoQuery;
+
+          if (ecoError) {
+            console.error(`[${new Date().toISOString()}] [CLOUDFLARE_API] ❌ Fallback falhou`, {
+              error: ecoError.message,
+              details: (ecoError as any)?.details,
+              hint: (ecoError as any)?.hint,
+            });
+            throw ecoError;
+          }
+
+          // Mapear para estrutura mínima esperada pelo frontend
+          const mapped = (ecoData || []).map((p: any) => ({
+            id: String(p.id ?? p.codigo ?? `${p.tipo || 'eco'}-${p.codigo || Math.random()}`),
+            name: p.titulo || p.nome || 'Produto',
+            description: p.descricao || '',
+            images: [p.img_0, p.IMAGEM].filter(Boolean),
+            category: p.categoria || 'ecologicos',
+            sustainabilityFeatures: [],
+            specifications: {},
+            features: [],
+            certifications: [],
+            inStock: true,
+            featured: false,
+          }));
+
+          return apiResponse({
+            success: true,
+            data: {
+              items: mapped,
+              pagination: {
+                currentPage: page,
+                totalPages: Math.ceil((ecoCount || (mapped?.length || 0)) / limit),
+                totalItems: ecoCount || (mapped?.length || 0),
+                itemsPerPage: limit,
+                hasNextPage: page * limit < (ecoCount || (mapped?.length || 0)),
+                hasPrevPage: page > 1,
+              },
+            },
+          });
+        }
       } else if (pathSegments[0] === 'featured' && pathSegments[1] === 'list') {
         // GET /api/products/featured/list
         const limit = parseInt(url.searchParams.get('limit') || '4');
         
-        const { data, error } = await supabase
-          .from('products')
-          .select('*')
-          .eq('featured', true)
-          .limit(limit);
+        try {
+          const { data, error } = await supabase
+            .from('products')
+            .select('*')
+            .eq('featured', true)
+            .limit(limit);
 
-        if (error) throw error;
+          if (error) throw error;
 
-        return apiResponse({
-          success: true,
-          data: data || [],
-        });
+          return apiResponse({
+            success: true,
+            data: data || [],
+          });
+        } catch (primaryError) {
+          console.warn(`[${new Date().toISOString()}] [CLOUDFLARE_API] ⚠️ Fallback highlighted acionado`, {
+            error: primaryError instanceof Error ? primaryError.message : primaryError,
+          });
+
+          const { data: ecoData, error: ecoError } = await supabase
+            .from('ecologic_products_site')
+            .select('*')
+            .limit(limit);
+
+          if (ecoError) throw ecoError;
+
+          const mapped = (ecoData || []).map((p: any) => ({
+            id: String(p.id ?? p.codigo ?? `${p.tipo || 'eco'}-${p.codigo || Math.random()}`),
+            name: p.titulo || p.nome || 'Produto',
+            description: p.descricao || '',
+            images: [p.img_0, p.IMAGEM].filter(Boolean),
+            category: p.categoria || 'ecologicos',
+            featured: true,
+          }));
+
+          return apiResponse({ success: true, data: mapped });
+        }
       } else if (pathSegments[0] === 'highlighted') {
         // GET /api/products/highlighted
         const limit = parseInt(url.searchParams.get('limit') || '6');
@@ -167,41 +266,70 @@ async function handleProducts(request: Request, supabase: any, pathSegments: str
       } else if (pathSegments[0] === 'categories' && pathSegments[1] === 'list') {
         // GET /api/products/categories/list
         // Extrair categorias distintas a partir de `category_id`
-        const { data, error } = await supabase
-          .from('products')
-          .select('category_id')
-          .not('category_id', 'is', null);
+        try {
+          const { data, error } = await supabase
+            .from('products')
+            .select('category_id')
+            .not('category_id', 'is', null);
 
-        if (error) throw error;
+          if (error) throw error;
 
-        const categories = [...new Set((data || []).map((item: any) => item.category_id))];
+          const categories = [...new Set((data || []).map((item: any) => item.category_id))];
 
-        return apiResponse({
-          success: true,
-          data: categories,
-        });
+          return apiResponse({ success: true, data: categories });
+        } catch (primaryError) {
+          console.warn(`[${new Date().toISOString()}] [CLOUDFLARE_API] ⚠️ Fallback categorias acionado`, {
+            error: primaryError instanceof Error ? primaryError.message : primaryError,
+          });
+          const { data: ecoData, error: ecoError } = await supabase
+            .from('ecologic_products_site')
+            .select('categoria')
+            .not('categoria', 'is', null);
+          if (ecoError) throw ecoError;
+          const categories = [...new Set((ecoData || []).map((item: any) => item.categoria))];
+          return apiResponse({ success: true, data: categories });
+        }
       } else if (pathSegments.length === 1) {
         // GET /api/products/:id
         const productId = pathSegments[0];
         
-        const { data, error } = await supabase
-          .from('products')
-          .select('*')
-          .eq('id', productId)
-          .single();
+        try {
+          const { data, error } = await supabase
+            .from('products')
+            .select('*')
+            .eq('id', productId)
+            .single();
 
-        if (error) throw error;
+          if (error) throw error;
 
-        return apiResponse({
-          success: true,
-          data: data,
-        });
+          return apiResponse({ success: true, data });
+        } catch (primaryError) {
+          console.warn(`[${new Date().toISOString()}] [CLOUDFLARE_API] ⚠️ Fallback produto por ID acionado`, {
+            error: primaryError instanceof Error ? primaryError.message : primaryError,
+          });
+          const { data: ecoData, error: ecoError } = await supabase
+            .from('ecologic_products_site')
+            .select('*')
+            .eq('id', productId)
+            .maybeSingle();
+          if (ecoError) throw ecoError;
+          const mapped = ecoData
+            ? {
+                id: String(ecoData.id ?? ecoData.codigo ?? `${ecoData.tipo || 'eco'}-${ecoData.codigo || Math.random()}`),
+                name: ecoData.titulo || ecoData.nome || 'Produto',
+                description: ecoData.descricao || '',
+                images: [ecoData.img_0, ecoData.IMAGEM].filter(Boolean),
+                category: ecoData.categoria || 'ecologicos',
+              }
+            : null;
+          return apiResponse({ success: true, data: mapped });
+        }
       }
     }
 
     return errorResponse('Endpoint not found', 404);
   } catch (error) {
-    console.error('Products API error:', error);
+    console.error('Products API error:', error instanceof Error ? { message: error.message, stack: error.stack } : error);
     return errorResponse('Internal server error');
   }
 }
@@ -348,11 +476,14 @@ export async function onRequest(context: any) {
     const url = new URL(request.url);
     const pathSegments = url.pathname.replace('/api/', '').split('/').filter(Boolean);
 
-    // Verificar variáveis de ambiente
-    if (!env.VITE_SUPABASE_URL || !env.VITE_SUPABASE_ANON_KEY) {
+    // Verificar variáveis de ambiente com suporte a SUPABASE_*
+    const hasUrl = !!(env.SUPABASE_URL || env.VITE_SUPABASE_URL);
+    const hasKey = !!(env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_ANON_KEY || env.VITE_SUPABASE_ANON_KEY);
+    if (!hasUrl || !hasKey) {
       console.error(`[${new Date().toISOString()}] [CLOUDFLARE_API] ❌ Variáveis de ambiente faltando:`, {
-        hasSupabaseUrl: !!env.VITE_SUPABASE_URL,
-        hasSupabaseKey: !!env.VITE_SUPABASE_ANON_KEY
+        hasSupabaseUrl: hasUrl,
+        hasSupabaseKey: hasKey,
+        envNamesPresent: Object.keys(env || {})
       });
       return errorResponse('Configuração do servidor incompleta', 500);
     }
