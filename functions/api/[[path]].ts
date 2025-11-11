@@ -328,11 +328,34 @@ async function handleProducts(request: Request, supabase: any, pathSegments: str
           console.warn(`[${new Date().toISOString()}] [CLOUDFLARE_API] ⚠️ Fallback produto por ID acionado`, {
             error: primaryError instanceof Error ? primaryError.message : primaryError,
           });
-          const { data: ecoData, error: ecoError } = await supabase
-            .from('ecologic_products_site')
-            .select('*')
-            .eq('id', productId)
-            .maybeSingle();
+          // Tentar localizar por 'id'; se não achar, tentar por 'codigo'
+          let ecoData: any = null;
+          let ecoError: any = null;
+          try {
+            const res = await supabase
+              .from('ecologic_products_site')
+              .select('*')
+              .eq('id', productId)
+              .maybeSingle();
+            ecoData = res.data; ecoError = res.error;
+          } catch (e) {
+            ecoError = e;
+          }
+
+          if (!ecoData) {
+            // Caso IDs venham como 'eco-<codigo>' ou o frontend use 'codigo'
+            const codigo = productId.startsWith('eco-') ? productId.replace('eco-', '') : productId;
+            try {
+              const res2 = await supabase
+                .from('ecologic_products_site')
+                .select('*')
+                .eq('codigo', codigo)
+                .maybeSingle();
+              ecoData = res2.data; ecoError = ecoError || res2.error;
+            } catch (e2) {
+              ecoError = ecoError || e2;
+            }
+          }
           if (ecoError) throw ecoError;
           const mapped = ecoData
             ? {
