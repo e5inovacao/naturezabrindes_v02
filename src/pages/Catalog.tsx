@@ -506,15 +506,13 @@ export default function Catalog() {
           return productName.includes('bolsa') && !productName.includes('termica') && !productName.includes('thermal') && !productName.includes('porta');
         });
       } else if (selectedCategory.toLowerCase() === 'bolsas térmicas') {
-        // Filtro específico para Bolsas Térmicas - buscar produtos que contenham "térmica" case-sensitive e sem diferença entre acentos
+        // Filtro refinado para Bolsas Térmicas
         filtered = filtered.filter(product => {
-          const productName = product.name;
-          const productNameNormalized = productName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-          
-          // Buscar "térmica" de forma case-sensitive mas sem diferença entre acentos
-          const hasTermica = productName.includes('térmica') || productName.includes('termica');
-          
-          return hasTermica && !productNameNormalized.includes('porta');
+          const nameNorm = product.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+          const hasThermal = nameNorm.includes('termica') || nameNorm.includes('thermal');
+          const hasBagWord = nameNorm.includes('bolsa') || nameNorm.includes('cooler') || nameNorm.includes('lancheira') || nameNorm.includes('bag');
+          const excluded = ['garrafa', 'squeeze', 'copo', 'caneca'].some(t => nameNorm.includes(t));
+          return hasThermal && hasBagWord && !excluded;
         });
       } else if (selectedCategory.toLowerCase() === 'canecas') {
         // Filtro específico para Canecas - apenas no título, excluir produtos com 'porta'
