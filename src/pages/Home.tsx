@@ -239,21 +239,40 @@ const Home: React.FC = () => {
     const loadBottleProducts = async () => {
       try {
         setState(prev => ({ ...prev, bottleLoading: true, bottleError: null }));
-        
-        const response = await productsApi.getProducts({
-          search: 'garrafa',
-          limit: 8
-        });
-        
-        if (response.success && response.data && response.data.items) {
-          setState(prev => ({ 
-            ...prev, 
-            bottleProducts: response.data.items, 
-            bottleLoading: false 
-          }));
-        } else {
-          throw new Error('Erro ao carregar garrafas');
+
+        // Consultar múltiplos termos relevantes para ampliar resultados
+        const terms = ['garrafa', 'squeeze', 'térmica', 'inox'];
+        const aggregated: Product[] = [];
+
+        for (const term of terms) {
+          try {
+            const resp = await productsApi.getProducts({ search: term, limit: 8 });
+            if (resp.success && resp.data?.items?.length) {
+              // Evitar duplicatas por id
+              resp.data.items.forEach((item: any) => {
+                if (!aggregated.find(p => p.id === item.id)) aggregated.push(item);
+              });
+            }
+          } catch (e) {
+            console.warn(`[${new Date().toISOString()}] [HOME] ⚠️ Falha parcial ao buscar termo`, { term, error: e instanceof Error ? e.message : String(e) });
+          }
         }
+
+        // Aplicar filtro de relevância e usar seu tamanho para renderização
+        const filtered = aggregated.filter(product => {
+          const productName = product.name?.toLowerCase() || '';
+          const includeTerms = ['garrafa', 'squeeze', 'térmica', 'inox', 'vacuum', 'vácuo'];
+          const hasIncludeTerm = includeTerms.some(term => productName.includes(term));
+          const excludeTerms = ['porta', 'abridor de garrafa', 'garrafa bebedouro'];
+          const hasExcludeTerm = excludeTerms.some(term => productName.includes(term));
+          return hasIncludeTerm && !hasExcludeTerm;
+        });
+
+        setState(prev => ({ 
+          ...prev, 
+          bottleProducts: filtered.length ? filtered : aggregated, 
+          bottleLoading: false 
+        }));
       } catch (error) {
         console.error(`[${new Date().toISOString()}] [HOME] ❌ Erro ao carregar produtos de garrafas:`, {
           error: error instanceof Error ? error.message : 'Erro desconhecido',
@@ -270,21 +289,28 @@ const Home: React.FC = () => {
     const loadNotebookProducts = async () => {
       try {
         setState(prev => ({ ...prev, notebookLoading: true, notebookError: null }));
-        
-        const response = await productsApi.getProducts({
-          search: 'caderno bloco',
-          limit: 4
-        });
-        
-        if (response.success && response.data && response.data.items) {
-          setState(prev => ({ 
-            ...prev, 
-            notebookProducts: response.data.items, 
-            notebookLoading: false 
-          }));
-        } else {
-          throw new Error('Erro ao carregar blocos/cadernetas');
+
+        // Consultar múltiplos termos para cobrir variações
+        const terms = ['caderno', 'caderneta', 'bloco'];
+        const aggregated: Product[] = [];
+        for (const term of terms) {
+          try {
+            const resp = await productsApi.getProducts({ search: term, limit: 6 });
+            if (resp.success && resp.data?.items?.length) {
+              resp.data.items.forEach((item: any) => {
+                if (!aggregated.find(p => p.id === item.id)) aggregated.push(item);
+              });
+            }
+          } catch (e) {
+            console.warn(`[${new Date().toISOString()}] [HOME] ⚠️ Falha parcial ao buscar termo`, { term, error: e instanceof Error ? e.message : String(e) });
+          }
         }
+
+        setState(prev => ({ 
+          ...prev, 
+          notebookProducts: aggregated, 
+          notebookLoading: false 
+        }));
       } catch (error) {
         console.error(`[${new Date().toISOString()}] [HOME] ❌ Erro ao carregar produtos de blocos/cadernetas:`, {
           error: error instanceof Error ? error.message : 'Erro desconhecido',
@@ -301,29 +327,36 @@ const Home: React.FC = () => {
     const loadThermalBagProducts = async () => {
       try {
         setState(prev => ({ ...prev, thermalBagLoading: true, thermalBagError: null }));
-        
-        const response = await productsApi.getProducts({
-          search: 'bolsa termica',
-          limit: 4
-        });
-        
-        if (response.success && response.data && response.data.items) {
-          setState(prev => ({ 
-            ...prev, 
-            thermalBagProducts: response.data.items, 
-            thermalBagLoading: false 
-          }));
-        } else {
-          throw new Error('Erro ao carregar bolsas térmicas');
+
+        // Buscar nécessaire (com e sem acento) e variações comuns
+        const terms = ['nécessaire', 'necessaire', 'estojo', 'necessária'];
+        const aggregated: Product[] = [];
+        for (const term of terms) {
+          try {
+            const resp = await productsApi.getProducts({ search: term, limit: 6 });
+            if (resp.success && resp.data?.items?.length) {
+              resp.data.items.forEach((item: any) => {
+                if (!aggregated.find(p => p.id === item.id)) aggregated.push(item);
+              });
+            }
+          } catch (e) {
+            console.warn(`[${new Date().toISOString()}] [HOME] ⚠️ Falha parcial ao buscar termo`, { term, error: e instanceof Error ? e.message : String(e) });
+          }
         }
+
+        setState(prev => ({ 
+          ...prev, 
+          thermalBagProducts: aggregated, 
+          thermalBagLoading: false 
+        }));
       } catch (error) {
-        console.error(`[${new Date().toISOString()}] [HOME] ❌ Erro ao carregar produtos de bolsas térmicas:`, {
+        console.error(`[${new Date().toISOString()}] [HOME] ❌ Erro ao carregar produtos de nécessaires:`, {
           error: error instanceof Error ? error.message : 'Erro desconhecido',
-          productType: 'bolsas_termicas'
+          productType: 'necessaires'
         });
         setState(prev => ({ 
           ...prev, 
-          thermalBagError: 'Erro ao carregar produtos de bolsas térmicas', 
+          thermalBagError: 'Erro ao carregar produtos de nécessaires', 
           thermalBagLoading: false 
         }));
       }
@@ -471,57 +504,46 @@ const Home: React.FC = () => {
               </div>
             ) : state.bottleProducts.length > 0 ? (
               <Slider {...carouselSettings} className="bottle-carousel">
-                {state.bottleProducts
-                  .filter(product => {
-                    const productName = product.name.toLowerCase();
-                    // Incluir produtos que contenham qualquer um dos termos desejados
-                    const includeTerms = ['garrafa', 'squeeze', 'térmica', 'inox', 'vacuum', 'vácuo'];
-                    const hasIncludeTerm = includeTerms.some(term => productName.includes(term));
-                    // Excluir produtos com termos específicos
-                    const excludeTerms = ['porta', 'abridor de garrafa', 'garrafa bebedouro'];
-                    const hasExcludeTerm = excludeTerms.some(term => productName.includes(term));
-                    return hasIncludeTerm && !hasExcludeTerm;
-                  })
-                  .map((product) => (
-                    <div key={product.id} className="px-2">
-                      <Link to={`/produto/${product.id}`}>
-                        <Card hover padding="none" className="group ring-2 ring-green-200 bg-gradient-to-br from-green-50 to-white h-full">
-                          <div className="aspect-square overflow-hidden rounded-t-lg relative">
-                            <img
-                              src={product.images?.[0] || 'https://trae-api-us.mchost.guru/api/ide/v1/text_to_image?prompt=eco-friendly%20reusable%20bottle%20sustainable%20corporate%20gift&image_size=square'}
-                              alt={product.name}
-                              className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
-                            />
-                          </div>
-                          <Card.Content className="p-2 sm:p-3 md:p-6">
-                            <div className="space-y-2 sm:space-y-3 md:space-y-4">
-                              <h3 className="font-bold text-gray-900 line-clamp-2 text-xs sm:text-sm md:text-base lg:text-lg group-hover:text-green-700 transition-colors duration-300">
-                                {product.name}
-                              </h3>
-                              
-                              {product.isEcological && product.ecologicalClassification && (
-                                <div className="bg-green-100 border border-green-300 rounded-lg p-1.5 sm:p-2">
-                                  <div className="flex items-center gap-1 text-green-800 text-xs font-medium">
-                                    <Award className="w-3 h-3" />
-                                    <span className="truncate">{product.ecologicalClassification}</span>
-                                  </div>
+                {state.bottleProducts.map((product) => (
+                  <div key={product.id} className="px-2">
+                    <Link to={`/produto/${product.id}`}>
+                      <Card hover padding="none" className="group ring-2 ring-green-200 bg-gradient-to-br from-green-50 to-white h-full">
+                        <div className="aspect-square overflow-hidden rounded-t-lg relative">
+                          <img
+                            src={product.images?.[0] || 'https://trae-api-us.mchost.guru/api/ide/v1/text_to_image?prompt=eco-friendly%20reusable%20bottle%20sustainable%20corporate%20gift&image_size=square'}
+                            alt={product.name}
+                            className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
+                          />
+                        </div>
+                        <Card.Content className="p-2 sm:p-3 md:p-6">
+                          <div className="space-y-2 sm:space-y-3 md:space-y-4">
+                            <h3 className="font-bold text-gray-900 line-clamp-2 text-xs sm:text-sm md:text-base lg:text-lg group-hover:text-green-700 transition-colors duration-300">
+                              {product.name}
+                            </h3>
+                            
+                            {product.isEcological && product.ecologicalClassification && (
+                              <div className="bg-green-100 border border-green-300 rounded-lg p-1.5 sm:p-2">
+                                <div className="flex items-center gap-1 text-green-800 text-xs font-medium">
+                                  <Award className="w-3 h-3" />
+                                  <span className="truncate">{product.ecologicalClassification}</span>
                                 </div>
-                              )}
-                              
-                              <div className="flex items-center justify-between">
-                                <Badge variant="info" size="sm" className="text-xs">Garrafa</Badge>
-                                {product.featured && (
-                                  <Badge variant="success" size="sm" className="text-xs">Destaque</Badge>
-                                )}
                               </div>
+                            )}
+                            
+                            <div className="flex items-center justify-between">
+                              <Badge variant="info" size="sm" className="text-xs">Garrafa</Badge>
+                              {product.featured && (
+                                <Badge variant="success" size="sm" className="text-xs">Destaque</Badge>
+                              )}
                             </div>
-                          </Card.Content>
-                          <Card.Footer className="p-2 sm:p-3 md:p-4 pt-0">
-                            <Button className="w-full text-xs sm:text-sm" style={{backgroundColor: '#00AA00'}} onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#00AA00'} onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = '#00AA00'} size="sm">Ver Detalhes</Button>
-                          </Card.Footer>
-                        </Card>
-                      </Link>
-                    </div>
+                          </div>
+                        </Card.Content>
+                        <Card.Footer className="p-2 sm:p-3 md:p-4 pt-0">
+                          <Button className="w-full text-xs sm:text-sm" style={{backgroundColor: '#00AA00'}} onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#00AA00'} onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = '#00AA00'} size="sm">Ver Detalhes</Button>
+                        </Card.Footer>
+                      </Card>
+                    </Link>
+                  </div>
                   ))}
               </Slider>
             ) : (
