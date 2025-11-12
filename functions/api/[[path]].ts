@@ -75,6 +75,131 @@ function errorResponse(message: string, status = 500) {
   return apiResponse(errorData, status);
 }
 
+// Normalização de texto (remover acentos e padronizar)
+function normalizeText(text: string): string {
+  try {
+    return (text || '')
+      .toString()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+  } catch {
+    return (text || '').toString().toLowerCase();
+  }
+}
+
+// Gerar ID consistente para produtos ecológicos
+function generateConsistentEcologicId(data: any): string {
+  const baseId = data?.codigo || (data?.id ? String(data.id) : 'unknown');
+  return `ecologic-${baseId}`;
+}
+
+// Mapear registro de ecologic_products_site para Product
+function mapEcologicToProduct(data: any) {
+  const images: string[] = [];
+  if (data?.img_0) images.push(data.img_0);
+  if (data?.img_1) images.push(data.img_1);
+  if (data?.img_2) images.push(data.img_2);
+
+  const colorVariations: { color: string; image: string }[] = [];
+  if (Array.isArray(data?.variacoes)) {
+    data.variacoes.forEach((variacao: any) => {
+      if (variacao?.cor && variacao?.link_image) {
+        colorVariations.push({ color: variacao.cor, image: variacao.link_image });
+        if (!images.includes(variacao.link_image)) images.push(variacao.link_image);
+      }
+    });
+  }
+
+  let category = 'ecologicos';
+  if (data?.categoria) {
+    const categoryStr = String(data.categoria).toLowerCase();
+    if (
+      categoryStr.includes('canetas') ||
+      categoryStr.includes('escritório') ||
+      categoryStr.includes('escritorio') ||
+      categoryStr.includes('blocos') ||
+      categoryStr.includes('cadernos') ||
+      categoryStr.includes('anotações')
+    ) {
+      category = 'papelaria';
+    } else if (
+      categoryStr.includes('bolsas') ||
+      categoryStr.includes('mochilas') ||
+      categoryStr.includes('sacolas') ||
+      categoryStr.includes('nécessaire')
+    ) {
+      category = 'acessorios';
+    } else if (
+      categoryStr.includes('canecas') ||
+      categoryStr.includes('garrafas') ||
+      categoryStr.includes('copos') ||
+      categoryStr.includes('xícaras')
+    ) {
+      category = 'casa-escritorio';
+    } else if (categoryStr.includes('malas') || categoryStr.includes('maletas')) {
+      category = 'textil';
+    } else if (categoryStr.includes('chaveiros') || categoryStr.includes('diversos')) {
+      category = 'acessorios';
+    }
+  }
+
+  const title = (data?.titulo || '').toLowerCase();
+  const description = (data?.descricao || '').toLowerCase();
+  const combinedText = `${title} ${description}`;
+  const officeKeywords = [
+    'caneta','canetas','pen','pens',
+    'bloco','blocos','notepad','notepads',
+    'caderno','cadernos','notebook','notebooks',
+    'agenda','agendas','planner','planners',
+    'lápis','lapis','pencil','pencils',
+    'adesivo','adesivos','sticker','stickers',
+    'papel','papeis','paper',
+    'escritório','escritorio','office',
+    'papelaria','stationery',
+    'marca-texto','marcador','highlighter',
+    'régua','ruler','borracha','eraser','grampeador','stapler',
+    'clips','clipe','post-it','sticky notes'
+  ];
+  if (category !== 'papelaria' && category !== 'casa-escritorio') {
+    const hasOfficeKeyword = officeKeywords.some(k => combinedText.includes(k));
+    if (hasOfficeKeyword) category = 'papelaria';
+  }
+
+  const price = data?.preco ? (typeof data.preco === 'number' ? data.preco : parseFloat(data.preco) || 0) : 0;
+  const inStock = data?.status !== 'indisponivel' && data?.status !== 'esgotado';
+  const featured = data?.promocao === true || data?.promocao === 'true' || data?.promocao === 1;
+
+  return {
+    id: generateConsistentEcologicId(data),
+    name: data?.titulo || 'Produto Ecológico',
+    description: data?.descricao || '',
+    category,
+    images,
+    sustainabilityFeatures: ['sustentavel'],
+    customizationOptions: [],
+    price,
+    inStock,
+    featured,
+    isEcological: true,
+    isExternal: false,
+    externalSource: 'Supabase',
+    supplier: 'Ecologic',
+    supplierCode: data?.codigo || null,
+    reference: data?.codigo || null,
+    ecologicDatabaseId: data?.id,
+    allImages: images,
+    dimensions: {
+      height: data?.altura ? parseFloat(data.altura) : undefined,
+      width: data?.largura ? parseFloat(data.largura) : undefined,
+      length: data?.comprimento ? parseFloat(data.comprimento) : undefined,
+      weight: data?.peso ? parseFloat(data.peso) : undefined,
+    },
+    primaryColor: data?.cor_web_principal || undefined,
+    colorVariations,
+  };
+}
+
 // Products API handlers
 async function handleProducts(request: Request, supabase: any, pathSegments: string[]) {
   const url = new URL(request.url);
@@ -84,128 +209,99 @@ async function handleProducts(request: Request, supabase: any, pathSegments: str
     if (method === 'GET') {
       // Handle different product endpoints
       if (pathSegments.length === 0) {
-        // GET /api/products - List products with filters
         const category = url.searchParams.get('category');
-        const features = url.searchParams.get('features');
         const search = url.searchParams.get('search');
-        const featured = url.searchParams.get('featured');
-        const page = parseInt(url.searchParams.get('page') || '1');
-        const limit = parseInt(url.searchParams.get('limit') || '20');
-        const sort = url.searchParams.get('sort') || 'name';
+        const page = Math.max(1, parseInt(url.searchParams.get('page') || '1'));
+        const limit = Math.max(1, Math.min(2000, parseInt(url.searchParams.get('limit') || '100')));
+        const sort = url.searchParams.get('sort') || 'name_asc';
 
-        // Lista de produtos com filtros usando tabela principal `products`
-        let query = supabase.from('products').select('*', { count: 'exact' });
+        const { data: ecoData, error: ecoError } = await supabase
+          .from('ecologic_products_site')
+          .select('*');
 
-        // Apply filters
-        if (category) {
-          // No schema `products`, usamos `category_id`
-          query = query.eq('category_id', category);
+        if (ecoError) {
+          return apiResponse({ success: false, error: 'Erro ao buscar produtos ecológicos' }, 500);
         }
-        if (features) {
-          // `features` é um array; usar contains quando possível
-          try {
-            const parts = features.split(',').map(p => p.trim()).filter(Boolean);
-            if (parts.length > 0) {
-              query = query.contains('features', parts.length === 1 ? [parts[0]] : parts);
+
+        const mapped = (ecoData || []).map(mapEcologicToProduct);
+        let filteredProducts = mapped;
+
+        if (search && search.trim()) {
+          const searchTerm = search.trim();
+          const searchWords = searchTerm.split(/\s+/).filter(w => w.length > 0);
+
+          const productsWithScore = filteredProducts.map(product => {
+            const productName = normalizeText(product.name);
+            const normalizedSearchTerm = normalizeText(searchTerm);
+            const normalizedSearchWords = searchWords.map(w => normalizeText(w));
+            let score = 0;
+            if (productName.includes(normalizedSearchTerm)) score += 100;
+            normalizedSearchWords.forEach(word => { if (productName.includes(word)) score += 20; });
+            if (product.supplierCode && String(product.supplierCode) === searchTerm) score += 150;
+            if (product.reference && String(product.reference) === searchTerm) score += 150;
+            if (product.supplierCode && String(product.supplierCode).includes(searchTerm)) score += 80;
+            if (product.reference && String(product.reference).includes(searchTerm)) score += 80;
+            if (productName.startsWith(normalizedSearchTerm)) score += 50;
+            return { product, score };
+          });
+
+          filteredProducts = productsWithScore
+            .filter(item => item.score > 0)
+            .sort((a, b) => b.score - a.score)
+            .map(item => item.product);
+        }
+
+        if (category && category.trim() && category.trim().toLowerCase() !== 'all') {
+          const categoryTerm = category.trim().toLowerCase();
+          filteredProducts = filteredProducts.filter(product => {
+            if (categoryTerm === 'canetas') {
+              const name = normalizeText(product.name);
+              const desc = normalizeText(product.description || '');
+              return name.includes('caneta') || desc.includes('caneta');
+            } else if (categoryTerm === 'canecas') {
+              const name = normalizeText(product.name);
+              const desc = normalizeText(product.description || '');
+              return name.includes('caneca') || desc.includes('caneca');
+            } else {
+              return normalizeText(product.category).includes(normalizeText(categoryTerm));
             }
-          } catch {
-            // fallback silencioso sem filtro
-          }
-        }
-        if (search) {
-          query = query.or(`name.ilike.%${search}%,description.ilike.%${search}%`);
-        }
-        if (featured === 'true') {
-          query = query.eq('featured', true);
+          });
         }
 
-        // Apply pagination
-        const from = (page - 1) * limit;
-        const to = from + limit - 1;
-        query = query.range(from, to);
+        switch (sort) {
+          case 'name_desc':
+            filteredProducts.sort((a, b) => b.name.localeCompare(a.name));
+            break;
+          case 'category_asc':
+            filteredProducts.sort((a, b) => a.category.localeCompare(b.category));
+            break;
+          case 'category_desc':
+            filteredProducts.sort((a, b) => b.category.localeCompare(a.category));
+            break;
+          default:
+            filteredProducts.sort((a, b) => a.name.localeCompare(b.name));
+        }
 
-        // Apply sorting
-        query = query.order(sort);
+        const totalItems = filteredProducts.length;
+        const totalPages = Math.ceil(totalItems / limit);
+        const startIndex = (page - 1) * limit;
+        const endIndex = startIndex + limit;
+        const paginatedProducts = filteredProducts.slice(startIndex, endIndex);
 
-        try {
-          const { data, error, count } = await query;
-
-          if (error) throw error;
-
-          return apiResponse({
-            success: true,
-            data: {
-              items: data || [],
-              pagination: {
-                currentPage: page,
-                totalPages: Math.ceil((count || 0) / limit),
-                totalItems: count || 0,
-                itemsPerPage: limit,
-                hasNextPage: page * limit < (count || 0),
-                hasPrevPage: page > 1,
-              },
+        return apiResponse({
+          success: true,
+          data: {
+            items: paginatedProducts,
+            pagination: {
+              currentPage: page,
+              totalPages,
+              totalItems,
+              itemsPerPage: limit,
+              hasNextPage: page < totalPages,
+              hasPrevPage: page > 1,
             },
-          });
-        } catch (primaryError) {
-          console.warn(`[${new Date().toISOString()}] [CLOUDFLARE_API] ⚠️ Fallback de produtos acionado`, {
-            error: primaryError instanceof Error ? primaryError.message : primaryError,
-          });
-
-          // Fallback: usar tabela ecologic_products_site com mapeamento simples
-          let ecoQuery = supabase.from('ecologic_products_site').select('*', { count: 'exact' });
-
-          if (category) {
-            ecoQuery = ecoQuery.eq('categoria', category);
-          }
-          if (search) {
-            ecoQuery = ecoQuery.or(`titulo.ilike.%${search}%,descricao.ilike.%${search}%`);
-          }
-
-          const ecoFrom = (page - 1) * limit;
-          const ecoTo = ecoFrom + limit - 1;
-          ecoQuery = ecoQuery.range(ecoFrom, ecoTo).order('titulo', { ascending: true });
-
-          const { data: ecoData, error: ecoError, count: ecoCount } = await ecoQuery;
-
-          if (ecoError) {
-            console.error(`[${new Date().toISOString()}] [CLOUDFLARE_API] ❌ Fallback falhou`, {
-              error: ecoError.message,
-              details: (ecoError as any)?.details,
-              hint: (ecoError as any)?.hint,
-            });
-            throw ecoError;
-          }
-
-          // Mapear para estrutura mínima esperada pelo frontend
-          const mapped = (ecoData || []).map((p: any) => ({
-            id: String(p.id ?? p.codigo ?? `${p.tipo || 'eco'}-${p.codigo || Math.random()}`),
-            name: p.titulo || p.nome || 'Produto',
-            description: p.descricao || '',
-            images: [p.img_0, p.IMAGEM].filter(Boolean),
-            category: p.categoria || 'ecologicos',
-            sustainabilityFeatures: [],
-            specifications: {},
-            features: [],
-            certifications: [],
-            inStock: true,
-            featured: false,
-          }));
-
-          return apiResponse({
-            success: true,
-            data: {
-              items: mapped,
-              pagination: {
-                currentPage: page,
-                totalPages: Math.ceil((ecoCount || (mapped?.length || 0)) / limit),
-                totalItems: ecoCount || (mapped?.length || 0),
-                itemsPerPage: limit,
-                hasNextPage: page * limit < (ecoCount || (mapped?.length || 0)),
-                hasPrevPage: page > 1,
-              },
-            },
-          });
-        }
+          },
+        });
       } else if (pathSegments[0] === 'featured' && pathSegments[1] === 'list') {
         // GET /api/products/featured/list
         const limit = parseInt(url.searchParams.get('limit') || '4');
@@ -247,41 +343,24 @@ async function handleProducts(request: Request, supabase: any, pathSegments: str
           return apiResponse({ success: true, data: mapped });
         }
       } else if (pathSegments[0] === 'highlighted') {
-        // GET /api/products/highlighted
         const limit = parseInt(url.searchParams.get('limit') || '6');
-
         try {
           const { data, error } = await supabase
-            .from('products')
-            .select('*')
-            .eq('featured', true)
+            .from('produtos_destaque')
+            .select(`*, ecologic_products_site!produtos_destaque_id_produto_fkey(*)`)
             .limit(limit);
-
           if (error) throw error;
-
-          return apiResponse({ success: true, data: data || [] });
-        } catch (primaryError) {
-          console.warn(`[${new Date().toISOString()}] [CLOUDFLARE_API] ⚠️ Fallback highlighted acionado`, {
-            error: primaryError instanceof Error ? primaryError.message : primaryError,
-          });
-
-          // Fallback para tabela ecologic_products_site (sem coluna 'featured')
+          const mapped = (data || [])
+            .map((item: any) => item?.ecologic_products_site ? mapEcologicToProduct(item.ecologic_products_site) : null)
+            .filter(Boolean);
+          return apiResponse({ success: true, data: mapped });
+        } catch (err) {
           const { data: ecoData, error: ecoError } = await supabase
             .from('ecologic_products_site')
             .select('*')
             .limit(limit);
-
-          if (ecoError) throw ecoError;
-
-          const mapped = (ecoData || []).map((p: any) => ({
-            id: String(p.id ?? p.codigo ?? `${p.tipo || 'eco'}-${p.codigo || Math.random()}`),
-            name: p.titulo || p.nome || 'Produto',
-            description: p.descricao || '',
-            images: [p.img_0, p.IMAGEM].filter(Boolean),
-            category: p.categoria || 'ecologicos',
-            featured: true,
-          }));
-
+          if (ecoError) return errorResponse('Erro ao buscar destaques', 500);
+          const mapped = (ecoData || []).map(mapEcologicToProduct);
           return apiResponse({ success: true, data: mapped });
         }
       } else if (pathSegments[0] === 'categories' && pathSegments[1] === 'list') {
