@@ -22,8 +22,7 @@ interface BrevoEmailRequest {
   htmlContent: string;
 }
 
-const BREVO_API_KEY = import.meta.env.VITE_BREVO_API_KEY || '';
-const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
+const BACKEND_EMAIL_URL = '/api/email';
 
 export const sendQuoteConfirmationEmail = async (emailData: EmailData): Promise<boolean> => {
   try {
@@ -43,28 +42,19 @@ export const sendQuoteConfirmationEmail = async (emailData: EmailData): Promise<
     }
     
     const emailTemplate = generateQuoteEmailTemplate(emailData);
-    
-    const emailRequest: BrevoEmailRequest = {
-      sender: {
-        name: 'Natureza Brindes',
-        email: 'contato@naturezabrindes.com.br'
-      },
-      to: [{
-        email: clientEmail,
-        name: clientName
-      }],
-      subject: 'Confirmação de Solicitação de Orçamento - Natureza Brindes',
-      htmlContent: emailTemplate
-    };
 
-    const response = await fetch(BREVO_API_URL, {
+    const response = await fetch(`${BACKEND_EMAIL_URL}/quote-confirmation`, {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'api-key': BREVO_API_KEY
+        'Content-Type': 'application/json'
       },
-      body: JSON.stringify(emailRequest)
+      body: JSON.stringify({
+        clientName,
+        clientEmail,
+        subject: 'Confirmação de Solicitação de Orçamento - Natureza Brindes',
+        htmlContent: emailTemplate
+      })
     });
 
     if (!response.ok) {
@@ -99,28 +89,19 @@ export const sendConfirmationEmail = async (emailData: EmailData): Promise<boole
     }
     
     const emailTemplate = generateEmailTemplate(emailData);
-    
-    const emailRequest: BrevoEmailRequest = {
-      sender: {
-        name: 'Natureza Brindes',
-        email: 'contato@naturezabrindes.com.br'
-      },
-      to: [{
-        email: clientEmail,
-        name: clientName
-      }],
-      subject: 'RECEBEMOS SUA SOLICITAÇÃO DE ORÇAMENTO - Natureza Brindes',
-      htmlContent: emailTemplate
-    };
 
-    const response = await fetch(BREVO_API_URL, {
+    const response = await fetch(`${BACKEND_EMAIL_URL}/confirmation`, {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'api-key': BREVO_API_KEY
+        'Content-Type': 'application/json'
       },
-      body: JSON.stringify(emailRequest)
+      body: JSON.stringify({
+        clientName,
+        clientEmail,
+        subject: 'RECEBEMOS SUA SOLICITAÇÃO DE ORÇAMENTO - Natureza Brindes',
+        htmlContent: emailTemplate
+      })
     });
 
     if (!response.ok) {
@@ -210,7 +191,7 @@ const generateQuoteEmailTemplate = (emailData: EmailData): string => {
         <tr>
           <td style="padding:16px 32px;font-size:12px;color:#6b7280;">
             <b>Natureza Brindes</b><br>
-            WhatsApp: (27) 99999-9999 | E-mail: contato@naturezabrindes.com.br<br>
+            WhatsApp: (27) 99999-9999 | E-mail: naturezabrindes@naturezabrindes.com.br<br>
             Serra – ES
           </td>
         </tr>
@@ -292,7 +273,7 @@ const generateEmailTemplate = (emailData: EmailData): string => {
         <tr>
           <td style="padding:16px 32px;font-size:12px;color:#6b7280;">
             <b>Natureza Brindes</b><br>
-            WhatsApp: (27) 99999-9999 | E-mail: contato@naturezabrindes.com.br<br>
+            WhatsApp: (27) 99999-9999 | E-mail: naturezabrindes@naturezabrindes.com.br<br>
             Serra – ES
           </td>
         </tr>

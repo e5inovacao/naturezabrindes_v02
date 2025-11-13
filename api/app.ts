@@ -11,6 +11,7 @@ import authRoutes from './routes/auth.ts';
 import productsRoutes from './routes/products.ts';
 import quotesRoutes from './routes/quotes.ts';
 import proxyRoutes from './routes/proxy.ts';
+import emailRoutes from './routes/email.ts';
 
 // for esm mode
 const __filename = fileURLToPath(import.meta.url);
@@ -39,6 +40,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/products', productsRoutes);
 app.use('/api/quotes', quotesRoutes);
 app.use('/api/proxy', proxyRoutes);
+app.use('/api/email', emailRoutes);
 
 /**
  * health
