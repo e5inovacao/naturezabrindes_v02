@@ -685,3 +685,52 @@ const calculateScore = (product: Product, searchTerms: string[], category?: Prod
   
   return score;
 };
+
+// PUT /api/products/:code/deactivate - Desativar produto (status_active=false)
+router.put('/:code/deactivate', async (req: Request, res: Response) => {
+  try {
+    const { code } = req.params;
+    const numeric = /^\d+$/.test(code) ? parseInt(code, 10) : null;
+
+    // Tentar por codigo
+    const { data: byCodigo } = await supabaseAdmin
+      .from('ecologic_products_site')
+      .select('id, codigo')
+      .eq('codigo', code)
+      .limit(1);
+
+    let targetId: number | null = null;
+    if (Array.isArray(byCodigo) && byCodigo.length > 0) {
+      targetId = byCodigo[0].id as number;
+    }
+
+    // Se não achou pelo codigo e for numérico, tentar por id
+    if (!targetId && numeric !== null) {
+      const { data: byId } = await supabaseAdmin
+        .from('ecologic_products_site')
+        .select('id')
+        .eq('id', numeric)
+        .limit(1);
+      if (Array.isArray(byId) && byId.length > 0) {
+        targetId = byId[0].id as number;
+      }
+    }
+
+    if (!targetId) {
+      return res.status(404).json({ success: false, error: 'Produto não encontrado' });
+    }
+
+    const { error: updateError } = await supabaseAdmin
+      .from('ecologic_products_site')
+      .update({ status_active: false })
+      .eq('id', targetId);
+
+    if (updateError) {
+      return res.status(500).json({ success: false, error: 'Erro ao desativar produto' });
+    }
+
+    res.json({ success: true, data: { id: targetId, status_active: false } });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Erro interno do servidor' });
+  }
+});

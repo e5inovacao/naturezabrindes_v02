@@ -20,6 +20,7 @@ import Suporte from './pages/Suporte';
 import TestPage from './pages/TestPage';
 import Sustainability from './pages/Sustainability';
 import EmailTemplates from './pages/EmailTemplates';
+import EmailPreview from './pages/EmailPreview';
 
 function App() {
   // Mock cart items count - will be replaced with actual state management
@@ -47,6 +48,7 @@ function App() {
           <Route path="/componentes" element={<Componentes />} />
           <Route path="/testes" element={<TestPage />} />
           <Route path="/email-templates" element={<EmailTemplates />} />
+          <Route path="/email-preview" element={<EmailPreview />} />
 
           <Route path="*" element={
             <div className="container-custom section-padding text-center">

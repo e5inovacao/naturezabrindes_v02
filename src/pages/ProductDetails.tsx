@@ -910,6 +910,8 @@ export default function ProductDetails() {
                           'cinza': '#808080',
                           'bordô': '#800020',
                           'verde escuro': '#006400',
+                          'verde': '#008000',
+                          'verde claro': '#90EE90',
                           'vermelho': '#FF0000',
                           'amarelo': '#FFFF00',
                           'rosa': '#FFC0CB',
@@ -918,6 +920,8 @@ export default function ProductDetails() {
                           'marrom': '#8B4513',
                           'bege': '#F5F5DC',
                           'navy': '#000080',
+                          'azul marinho': '#000080',
+                          'natural': '#F5F5DC',
                           'turquesa': '#40E0D0'
                         };
                         return colorMap[colorName.toLowerCase()] || '#CCCCCC';

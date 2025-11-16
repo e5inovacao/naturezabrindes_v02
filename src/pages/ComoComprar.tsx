@@ -100,7 +100,7 @@ const ComoComprar: React.FC = () => {
                 <h3 className="text-xl font-semibold mb-4 text-green-600">Suporte</h3>
                 <ul className="space-y-2 text-gray-600">
                   <li>• Atendimento via WhatsApp</li>
-                  <li>• E-mail: contato@naturezabrindes.com</li>
+                  <li>• E-mail: naturezabrindes@naturezabrindes.com.br</li>
                   <li>• Horário: Segunda - Quinta: 07:30 - 17:30, Sexta: 08:00 - 17:00</li>
                   <li>• Acompanhamento do pedido online</li>
                 </ul>

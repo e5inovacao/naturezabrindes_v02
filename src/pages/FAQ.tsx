@@ -248,7 +248,7 @@ const FAQ: React.FC = () => {
                 <Mail className="text-green-600" size={24} />
               </div>
               <h3 className="font-semibold text-gray-900 mb-2">E-mail</h3>
-              <p className="text-gray-600 mb-4">contato@naturezabrindes.com</p>
+              <p className="text-gray-600 mb-4">naturezabrindes@naturezabrindes.com.br</p>
               <Button size="sm" variant="outline">
                 Enviar E-mail
               </Button>

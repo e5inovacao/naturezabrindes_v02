@@ -9,20 +9,12 @@ interface EmailData {
   message?: string;
 }
 
-interface BrevoEmailRequest {
-  sender: {
-    name: string;
-    email: string;
-  };
-  to: Array<{
-    email: string;
-    name: string;
-  }>;
+interface BackendEmailRequest {
+  to: string;
+  name: string;
   subject: string;
   htmlContent: string;
 }
-
-const BACKEND_EMAIL_URL = '/api/email';
 
 export const sendQuoteConfirmationEmail = async (emailData: EmailData): Promise<boolean> => {
   try {
@@ -43,18 +35,20 @@ export const sendQuoteConfirmationEmail = async (emailData: EmailData): Promise<
     
     const emailTemplate = generateQuoteEmailTemplate(emailData);
 
-    const response = await fetch(`${BACKEND_EMAIL_URL}/quote-confirmation`, {
+    const emailRequest: BackendEmailRequest = {
+      to: clientEmail,
+      name: clientName,
+      subject: 'Confirmação de Solicitação de Orçamento - Natureza Brindes',
+      htmlContent: emailTemplate
+    };
+
+    const response = await fetch('/api/email/test', {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        clientName,
-        clientEmail,
-        subject: 'Confirmação de Solicitação de Orçamento - Natureza Brindes',
-        htmlContent: emailTemplate
-      })
+      body: JSON.stringify(emailRequest)
     });
 
     if (!response.ok) {
@@ -90,18 +84,20 @@ export const sendConfirmationEmail = async (emailData: EmailData): Promise<boole
     
     const emailTemplate = generateEmailTemplate(emailData);
 
-    const response = await fetch(`${BACKEND_EMAIL_URL}/confirmation`, {
+    const emailRequest: BackendEmailRequest = {
+      to: clientEmail,
+      name: clientName,
+      subject: 'RECEBEMOS SUA SOLICITAÇÃO DE ORÇAMENTO - Natureza Brindes',
+      htmlContent: emailTemplate
+    };
+
+    const response = await fetch('/api/email/test', {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        clientName,
-        clientEmail,
-        subject: 'RECEBEMOS SUA SOLICITAÇÃO DE ORÇAMENTO - Natureza Brindes',
-        htmlContent: emailTemplate
-      })
+      body: JSON.stringify(emailRequest)
     });
 
     if (!response.ok) {

@@ -85,7 +85,7 @@ async function createQuoteRequest(customerData: any, items: any[], notes?: strin
     .insert({
       user_id: clienteId,
       numero_solicitacao: numeroSolicitacao,
-      observacoes: notes || '',
+      solicitacao_observacao: notes || '',
       status: 'pendente'
     })
     .select()
@@ -98,15 +98,39 @@ async function createQuoteRequest(customerData: any, items: any[], notes?: strin
   
   console.log(`[${new Date().toISOString()}] [QUOTES] ✅ Solicitação criada:`, solicitacao.solicitacao_id);
   
-  // Criar itens da solicitação
-  const itensData = items.map(item => ({
-    solicitacao_id: solicitacao.solicitacao_id,
-    produto_nome: item.name || item.productName,
-    quantidade: item.quantity,
-    valor_unitario_estimado: item.unitPrice || 0,
-    subtotal_estimado: (item.quantity * (item.unitPrice || 0)),
-    personalizacoes: item.customizations || {}
-  }));
+  // Helper para extrair código do produto (ecologic-12345 -> 12345)
+  const extractProductCodeFromValue = (val: any): string | null => {
+    if (val === null || val === undefined) return null;
+    if (typeof val === 'number') return String(Math.floor(Math.abs(val)));
+    const s = String(val);
+    const match = s.match(/(\d{3,})/);
+    return match ? match[1] : null;
+  };
+  const extractProductCode = (item: any): string | null => {
+    return (
+      extractProductCodeFromValue(item.ecologicalId) ||
+      extractProductCodeFromValue(item.id) ||
+      extractProductCodeFromValue(item.productId) ||
+      extractProductCodeFromValue(item.img_ref_url) ||
+      extractProductCodeFromValue(item.image) ||
+      null
+    );
+  };
+
+  // Criar itens da solicitação com colunas reais da tabela products_solicitacao
+  const itensData = items.map(item => {
+    const code = extractProductCode(item);
+    return {
+      solicitacao_id: solicitacao.solicitacao_id,
+      products_id: code ?? (item.id ? String(item.id) : null),
+      products_quantidade_01: item.quantity || 0,
+      products_quantidade_02: item.quantity2 || 0,
+      products_quantidade_03: item.quantity3 || 0,
+      color: item.selectedColor || null,
+      customizations: item.customizations ? JSON.stringify(item.customizations) : (item.name ? JSON.stringify({ name: item.name, id: item.id }) : null),
+      img_ref_url: item.image || null
+    };
+  });
   
   const { data: itens, error: itensError } = await supabaseAdmin
     .from('products_solicitacao')
@@ -119,7 +143,8 @@ async function createQuoteRequest(customerData: any, items: any[], notes?: strin
   }
   
   console.log(`[${new Date().toISOString()}] [QUOTES] ✅ Itens criados:`, itens.length);
-  
+  console.log(`[${new Date().toISOString()}] [QUOTES] 🧾 Itens detalhados:`, itensData.map(i => ({ products_id: i.products_id, color: i.color, q1: i.products_quantidade_01 })));
+
   return solicitacao;
 }
 
@@ -168,6 +193,26 @@ router.post('/v2', async (req: Request, res: Response) => {
       id: result.solicitacao_id,
       numero: result.numero_solicitacao
     });
+
+    // Montar mensagem com lista de produtos para o e-mail
+    const lines = items.map((item: any) => {
+      const qtyParts: string[] = [];
+      if (item.quantity && item.quantity > 0) qtyParts.push(`(Qtd: ${item.quantity})`);
+      if (item.quantity2 && item.quantity2 > 0) qtyParts.push(`(Qtd: ${item.quantity2})`);
+      if (item.quantity3 && item.quantity3 > 0) qtyParts.push(`(Qtd: ${item.quantity3})`);
+      let qtyText = '';
+      if (qtyParts.length === 1) qtyText = qtyParts[0];
+      else if (qtyParts.length === 2) qtyText = `${qtyParts[0]} e ${qtyParts[1]}`;
+      else if (qtyParts.length > 2) qtyText = `${qtyParts.slice(0, -1).join(', ')} e ${qtyParts.slice(-1)[0]}`;
+      const name = item.name || item.product_name || 'Produto';
+      const color = item.selectedColor ? ` - Cor: ${item.selectedColor}` : '';
+      return `-  ${name}: ${qtyText}${color}`.trim();
+    }).join('\n');
+
+    const message = `Produtos solicitados\n\n${lines}`;
+
+    // Enviar e-mail de confirmação com a lista
+    await sendBrevoConfirmationEmail(customerData, { subject: 'Solicitação de Orçamento', message, observations: notes });
 
     return res.status(201).json({
       success: true,
@@ -345,7 +390,7 @@ router.post('/', async (req: Request, res: Response) => {
       .insert({
         user_id: clienteId,
         numero_solicitacao: numeroSolicitacao,
-        observacoes: notes ? notes.trim() : '',
+        solicitacao_observacao: notes ? notes.trim() : '',
         status: 'pendente'
       })
       .select('solicitacao_id, numero_solicitacao')
@@ -420,6 +465,9 @@ router.post('/', async (req: Request, res: Response) => {
       .single();
 
     const newQuote = mapSupabaseToQuoteRequest(fullQuoteData, fullItemsData || [], clienteData);
+
+    // Enviar e-mail de confirmação
+    await sendBrevoConfirmationEmail(customerData, { observations: notes });
 
     res.status(201).json({
       success: true,
@@ -756,3 +804,79 @@ router.get('/stats/dashboard', async (req: Request, res: Response) => {
 });
 
 export default router;
+import { generateConfirmationEmailHTML } from '../utils/emailTemplates.ts';
+import nodemailer from 'nodemailer';
+
+async function sendBrevoConfirmationEmail(customerData: any, options: { subject?: string; message?: string; observations?: string } = {}) {
+  try {
+    const host = process.env.SMTP_HOST || 'smtp.zoho.com';
+    const port = Number(process.env.SMTP_PORT || 587);
+    const secure = String(process.env.SMTP_SECURE || '').toLowerCase() === 'true' || port === 465;
+    const user = process.env.SMTP_USER;
+    const pass = process.env.SMTP_PASS;
+    if (!user || !pass) {
+      console.warn('[QUOTES] SMTP credenciais ausentes no ambiente');
+      return false;
+    }
+
+    const transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure,
+      auth: { user, pass },
+      authMethod: 'PLAIN',
+      tls: { minVersion: 'TLSv1.2', servername: host }
+    });
+
+    const fromEmail = user;
+    const subject = options.subject || 'RECEBEMOS SUA SOLICITAÇÃO DE ORÇAMENTO - Natureza Brindes';
+
+    const htmlContent = generateConfirmationEmailHTML({
+      clientName: customerData.name,
+      clientEmail: customerData.email,
+      clientPhone: customerData.phone,
+      clientCompany: customerData.company,
+      subject: options.subject,
+      message: options.message,
+      observations: options.observations,
+    });
+
+    let outboxId: number | null = null;
+    try {
+      const ins = await supabaseAdmin
+        .from('email_outbox')
+        .insert({ recipient: customerData.email, subject, template: 'quote_confirmation', payload: { customerData, message: options.message, observations: options.observations }, status: 'queued' })
+        .select('id')
+        .single();
+      outboxId = ins.data?.id || null;
+    } catch {}
+
+    const info = await transporter.sendMail({
+      from: `Natureza Brindes <${fromEmail}>`,
+      to: `${customerData.name} <${customerData.email}>`,
+      cc: `Natureza Brindes <naturezabrindes@naturezabrindes.com.br>`,
+      subject,
+      html: htmlContent,
+      text: `Olá ${customerData.name},\n\nRecebemos sua solicitação de orçamento e nossa equipe já está preparando a melhor proposta.\n\nSeus dados:\n- E-mail: ${customerData.email}\n- Telefone: ${customerData.phone || 'Não informado'}\n- Empresa: ${customerData.company || 'Não informado'}\n\nAtenciosamente,\nEquipe Natureza Brindes`,
+      replyTo: `Natureza Brindes <${fromEmail}>`
+    });
+
+    try {
+      if (outboxId) {
+        await supabaseAdmin
+          .from('email_outbox')
+          .update({ status: 'sent', provider_response: { messageId: (info as any)?.messageId, response: (info as any)?.response }, updated_at: new Date().toISOString() })
+          .eq('id', outboxId);
+      }
+    } catch {}
+    return true;
+  } catch (e) {
+    console.error('[QUOTES] Erro no envio de e-mail (SMTP):', e instanceof Error ? e.message : String(e));
+    try {
+      await supabaseAdmin
+        .from('email_outbox')
+        .insert({ recipient: customerData?.email || 'diagnostic', subject: 'quote_smtp_error', template: 'quote_confirmation', payload: { error: e instanceof Error ? { message: e.message, name: e.name, stack: e.stack } : String(e) }, status: 'error' });
+    } catch {}
+    return false;
+  }
+}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Slider from 'react-slick';
 import "slick-carousel/slick/slick.css";
@@ -90,6 +90,29 @@ const Home: React.FC = () => {
     notebookError: null,
     thermalBagError: null,
   });
+
+  const bottleCarouselRef = useRef<HTMLDivElement | null>(null);
+  const [bottleCanScrollLeft, setBottleCanScrollLeft] = useState(false);
+  const [bottleCanScrollRight, setBottleCanScrollRight] = useState(false);
+
+  const updateBottleScrollButtons = () => {
+    const el = bottleCarouselRef.current;
+    if (!el) return;
+    setBottleCanScrollLeft(el.scrollLeft > 0);
+    setBottleCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+  };
+
+  const bottleScrollLeft = () => {
+    const el = bottleCarouselRef.current;
+    if (!el) return;
+    el.scrollBy({ left: -el.clientWidth, behavior: 'smooth' });
+  };
+
+  const bottleScrollRight = () => {
+    const el = bottleCarouselRef.current;
+    if (!el) return;
+    el.scrollBy({ left: el.clientWidth, behavior: 'smooth' });
+  };
 
   // Função para normalização padronizada de strings
   const norm = (s: string) => 
@@ -372,6 +395,18 @@ const Home: React.FC = () => {
     loadThermalBagProducts();
   }, []);
 
+  useEffect(() => {
+    const el = bottleCarouselRef.current;
+    updateBottleScrollButtons();
+    const onScroll = () => updateBottleScrollButtons();
+    window.addEventListener('resize', updateBottleScrollButtons);
+    if (el) el.addEventListener('scroll', onScroll);
+    return () => {
+      window.removeEventListener('resize', updateBottleScrollButtons);
+      if (el) el.removeEventListener('scroll', onScroll);
+    };
+  }, [state.bottleProducts]);
+
   // Dados mockados removidos - agora usando API
 
   const stats = [
@@ -440,9 +475,13 @@ const Home: React.FC = () => {
                   size="lg" 
                   icon={<ArrowRight size={20} />}
                   iconPosition="right"
-                >
-                  Solicitar Orçamento
-                </Button>
+                  onClick={() => {
+                    const phoneNumber = '5527999586250'
+                    const message = encodeURIComponent('Olá! Gostaria de falar com a Natureza Brindes.')
+                    const whatsappUrl = `https://wa.me/${phoneNumber}?text=${message}`
+                    window.open(whatsappUrl, '_blank')
+                  }}
+                >Entrar em contato</Button>
               </div>
             </div>
 
@@ -475,7 +514,7 @@ const Home: React.FC = () => {
             </p>
           </div>
 
-          <div className="carousel-container">
+  <div className="carousel-container">
             {state.bottleLoading ? (
               // Loading skeleton for bottle products
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -507,49 +546,71 @@ const Home: React.FC = () => {
                 <Button onClick={() => window.location.reload()}>Tentar Novamente</Button>
               </div>
             ) : state.bottleProducts.length > 0 ? (
-              <Slider {...carouselSettings} className="bottle-carousel">
-                {state.bottleProducts.map((product) => (
-                  <div key={product.id} className="px-2">
-                    <Link to={`/produto/${product.id}`}>
-                      <Card hover padding="none" className="group ring-2 ring-green-200 bg-gradient-to-br from-green-50 to-white h-full">
-                        <div className="aspect-square overflow-hidden rounded-t-lg relative">
-                          <img
-                            src={product.images?.[0] || 'https://trae-api-us.mchost.guru/api/ide/v1/text_to_image?prompt=eco-friendly%20reusable%20bottle%20sustainable%20corporate%20gift&image_size=square'}
-                            alt={product.name}
-                            className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
-                          />
-                        </div>
-                        <Card.Content className="p-2 sm:p-3 md:p-6">
-                          <div className="space-y-2 sm:space-y-3 md:space-y-4">
-                            <h3 className="font-bold text-gray-900 line-clamp-2 text-xs sm:text-sm md:text-base lg:text-lg group-hover:text-green-700 transition-colors duration-300">
-                              {product.name}
-                            </h3>
-                            
-                            {product.isEcological && product.ecologicalClassification && (
-                              <div className="bg-green-100 border border-green-300 rounded-lg p-1.5 sm:p-2">
-                                <div className="flex items-center gap-1 text-green-800 text-xs font-medium">
-                                  <Award className="w-3 h-3" />
-                                  <span className="truncate">{product.ecologicalClassification}</span>
-                                </div>
-                              </div>
-                            )}
-                            
-                            <div className="flex items-center justify-between">
-                              <Badge variant="info" size="sm" className="text-xs">Garrafa</Badge>
-                              {product.featured && (
-                                <Badge variant="success" size="sm" className="text-xs">Destaque</Badge>
-                              )}
-                            </div>
+              <div className="relative">
+                {bottleCanScrollLeft && (
+                  <button
+                    onClick={bottleScrollLeft}
+                    className="absolute left-0 top-1/2 -translate-y-1/2 z-10 p-2 rounded-full shadow-lg transition-all duration-200 bg-white text-gray-700 hover:bg-gray-50 hover:shadow-xl"
+                    style={{ marginLeft: '-20px' }}
+                  >
+                    <ChevronLeft size={24} />
+                  </button>
+                )}
+                {bottleCanScrollRight && (
+                  <button
+                    onClick={bottleScrollRight}
+                    className="absolute right-0 top-1/2 -translate-y-1/2 z-10 p-2 rounded-full shadow-lg transition-all duration-200 bg-white text-gray-700 hover:bg-gray-50 hover:shadow-xl"
+                    style={{ marginRight: '-20px' }}
+                  >
+                    <ChevronRight size={24} />
+                  </button>
+                )}
+                <div 
+                  ref={bottleCarouselRef}
+                  className="flex gap-6 overflow-x-auto scrollbar-hide pb-4 scroll-smooth"
+                  style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', scrollSnapType: 'x mandatory' }}
+                >
+                  {state.bottleProducts.map((product) => (
+                    <div key={product.id} style={{ width: '300px' }} className="flex-shrink-0">
+                      <Link to={`/produto/${product.id}`}>
+                        <Card hover padding="none" className="group ring-2 ring-green-200 bg-gradient-to-br from-green-50 to-white h-full">
+                          <div className="aspect-square overflow-hidden rounded-t-lg relative">
+                            <img
+                              src={product.images?.[0] || 'https://trae-api-us.mchost.guru/api/ide/v1/text_to_image?prompt=eco-friendly%20reusable%20bottle%20sustainable%20corporate%20gift&image_size=square'}
+                              alt={product.name}
+                              className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
+                            />
                           </div>
-                        </Card.Content>
-                        <Card.Footer className="p-2 sm:p-3 md:p-4 pt-0">
-                          <Button className="w-full text-xs sm:text-sm" style={{backgroundColor: '#00AA00'}} onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#00AA00'} onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = '#00AA00'} size="sm">Ver Detalhes</Button>
-                        </Card.Footer>
-                      </Card>
-                    </Link>
-                  </div>
+                          <Card.Content className="p-2 sm:p-3 md:p-6">
+                            <div className="space-y-2 sm:space-y-3 md:space-y-4">
+                              <h3 className="font-bold text-gray-900 line-clamp-2 text-xs sm:text-sm md:text-base lg:text-lg group-hover:text-green-700 transition-colors duration-300">
+                                {product.name}
+                              </h3>
+                              {product.isEcological && product.ecologicalClassification && (
+                                <div className="bg-green-100 border border-green-300 rounded-lg p-1.5 sm:p-2">
+                                  <div className="flex items-center gap-1 text-green-800 text-xs font-medium">
+                                    <Award className="w-3 h-3" />
+                                    <span className="truncate">{product.ecologicalClassification}</span>
+                                  </div>
+                                </div>
+                              )}
+                              <div className="flex items-center justify-between">
+                                <Badge variant="info" size="sm" className="text-xs">Garrafa</Badge>
+                                {product.featured && (
+                                  <Badge variant="success" size="sm" className="text-xs">Destaque</Badge>
+                                )}
+                              </div>
+                            </div>
+                          </Card.Content>
+                          <Card.Footer className="p-2 sm:p-3 md:p-4 pt-0">
+                            <Button className="w-full text-xs sm:text-sm" style={{backgroundColor: '#00AA00'}} onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#00AA00'} onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = '#00AA00'} size="sm">Ver Detalhes</Button>
+                          </Card.Footer>
+                        </Card>
+                      </Link>
+                    </div>
                   ))}
-              </Slider>
+                </div>
+              </div>
             ) : (
               <div className="text-center py-8">
                 <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">

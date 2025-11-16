@@ -13,7 +13,7 @@ export const COMPANY_INFO = {
   name: 'Natureza Brindes',
   tagline: 'Brindes Ecológicos e Sustentáveis',
   description: 'Especializada em brindes corporativos sustentáveis e ecológicos',
-  email: 'contato@naturezabrindes.com.br',
+  email: 'naturezabrindes@naturezabrindes.com.br',
   phone: '(27) 99958-6250',
   whatsapp: '5527999586250',
 } as const;

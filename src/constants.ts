@@ -28,7 +28,7 @@ export const URGENCY_LEVELS = [
 export const COMPANY_INFO = {
   name: 'Natureza Brindes',
   tagline: 'Brindes sustentáveis para um futuro melhor',
-  email: 'contato@naturezabrindes.com',
+  email: 'naturezabrindes@naturezabrindes.com.br',
   phone: '(27) 99958-6250',
   address: {
     street: 'Rua das Flores, 123',

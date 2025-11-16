@@ -8,9 +8,9 @@ import Card from '../components/Card';
 import Badge from '../components/Badge';
 import SuccessPopup from '../components/SuccessPopup';
 import { useCartStore } from '../store/cartStore';
-import { createQuoteRequest, checkPhoneExists, checkEmailExists, processQuoteRequest, QuoteRequestData, createQuoteRequestForRegisteredClient, getOrCreateUser } from '../services/quotesService';
-import { productsApi } from '../services/api';
-import { sendQuoteConfirmationEmail } from '../utils/emailService';
+import { checkPhoneExists, checkEmailExists, getOrCreateUser } from '../services/quotesService';
+import { productsApi, quotesApi } from '../services/api';
+// import removed: email sending handled by backend
 
 
 
@@ -76,6 +76,35 @@ export default function Cart() {
     };
     fetchProducts();
   }, []);
+
+  useEffect(() => {
+    const ensureDetails = async () => {
+      try {
+        const ids = items.map(i => i.id);
+        const missing = ids.filter(id => {
+          const p = products.find(pr => pr.id === id);
+          return !p || !Array.isArray(p.colorVariations) || p.colorVariations.length === 0;
+        });
+        if (missing.length === 0) return;
+        const fetched = await Promise.all(missing.map(async (id) => {
+          try {
+            const r = await productsApi.getProductById(id);
+            return r.data;
+          } catch {
+            return null;
+          }
+        }));
+        const details = fetched.filter(Boolean);
+        if (details.length === 0) return;
+        setProducts(prev => {
+          const map = new Map(prev.map(p => [p.id, p]));
+          details.forEach((d: any) => map.set(d.id, d));
+          return Array.from(map.values());
+        });
+      } catch {}
+    };
+    ensureDetails();
+  }, [items, products]);
   
 
 
@@ -138,64 +167,32 @@ export default function Cart() {
           });
         
         try {
-          const result = await createQuoteRequestForRegisteredClient(
-            formData.email,
-            observations || '',
-            items // Passar os produtos do carrinho
-          );
+          const clientData = await (async () => {
+            const { getUserByEmail } = await import('../services/quotesService');
+            return await getUserByEmail(formData.email);
+          })();
+
+          const result = await quotesApi.createQuote({
+            customerData: {
+              name: clientData?.nome || formData.name || 'Cliente',
+              email: formData.email,
+              phone: clientData?.telefone || formData.phone || '',
+              company: clientData?.empresa || formData.company || ''
+            },
+            items,
+            notes: observations || ''
+          });
           console.log(`[${new Date().toISOString()}] [CART] ✅ Solicitação de orçamento criada:`, {
               success: result.success,
               message: result.message
             });
           
-          // Buscar dados completos do cliente para o email
-          const { getUserByEmail } = await import('../services/quotesService');
-          const clientData = await getUserByEmail(formData.email);
+          // Buscar dados completos do cliente para o email (já obtido acima)
           
           // Enviar e-mail de confirmação
         try {
-          // Preparar lista de produtos para o e-mail no formato solicitado
-          // Usar as quantidades múltiplas de cada item
-          const productsList = items.map(item => {
-            const quantities = [];
-            
-            if (item.quantity > 0) {
-              quantities.push(`(Qtd: ${item.quantity})`);
-            }
-            if (item.quantity2 && item.quantity2 > 0) {
-              quantities.push(`(Qtd: ${item.quantity2})`);
-            }
-            if (item.quantity3 && item.quantity3 > 0) {
-              quantities.push(`(Qtd: ${item.quantity3})`);
-            }
-            
-            // Formatar no padrão: "Nome do produto: (Qtd: X), (Qtd: Y) e (Qtd: Z)"
-            let formattedQuantities;
-            if (quantities.length === 1) {
-              formattedQuantities = quantities[0];
-            } else if (quantities.length === 2) {
-              formattedQuantities = `${quantities[0]} e ${quantities[1]}`;
-            } else {
-              const lastQuantity = quantities.pop();
-              formattedQuantities = `${quantities.join(', ')} e ${lastQuantity}`;
-            }
-            
-            let productText = `${item.name}: ${formattedQuantities}`;
-            if (item.selectedColor) productText += ` - Cor: ${item.selectedColor}`;
-            if (item.itemNotes) productText += ` - Obs: ${item.itemNotes}`;
-            
-            return productText;
-          }).join('\n');
-          
-          await sendQuoteConfirmationEmail({
-            clientName: clientData?.nome || formData.name || 'Cliente',
-            clientEmail: formData.email,
-            clientPhone: clientData?.telefone || formData.phone || '',
-            clientCompany: clientData?.empresa || formData.company || '',
-            subject: 'Solicitação de Orçamento',
-            message: `Produtos solicitados:\n${productsList}${observations ? `\n\nObservações gerais: ${observations}` : ''}`
-          });
-          console.log(`[${new Date().toISOString()}] [CART] ✅ E-mail de confirmação enviado`);
+          // E-mail de confirmação é enviado pelo backend com cópia interna
+          console.log(`[${new Date().toISOString()}] [CART] ℹ️ E-mail de confirmação será enviado pelo backend`);
         } catch (emailError) {
           console.error(`[${new Date().toISOString()}] [CART] ❌ Erro ao enviar e-mail:`, emailError);
         }
@@ -337,62 +334,22 @@ export default function Cart() {
       // 2. solicitacao_orcamentos
       // 3. products_solicitacao
       // E faz rollback automático em caso de erro
-      const quoteResult = await createQuoteRequest(
+      const quoteResult = await quotesApi.createQuote({
         customerData,
         items,
-        observations || ''
-      );
+        notes: observations || ''
+      });
       
       console.log(`[${new Date().toISOString()}] [CART] ✅ Orçamento criado com sucesso:`, {
-          solicitacao_id: quoteResult.solicitacao_id,
-          numero_solicitacao: quoteResult.numero_solicitacao,
+          success: (quoteResult as any)?.success,
+          response: (quoteResult as any)?.data || quoteResult,
           databaseConfirmed: true
         });
       
       // Enviar e-mail de confirmação
       try {
-        // Preparar lista de produtos para o e-mail no formato solicitado
-        // Usar as quantidades múltiplas de cada item
-        const productsList = items.map(item => {
-          const quantities = [];
-          
-          if (item.quantity > 0) {
-            quantities.push(`(Qtd: ${item.quantity})`);
-          }
-          if (item.quantity2 && item.quantity2 > 0) {
-            quantities.push(`(Qtd: ${item.quantity2})`);
-          }
-          if (item.quantity3 && item.quantity3 > 0) {
-            quantities.push(`(Qtd: ${item.quantity3})`);
-          }
-          
-          // Formatar no padrão: "Nome do produto: (Qtd: X), (Qtd: Y) e (Qtd: Z)"
-          let formattedQuantities;
-          if (quantities.length === 1) {
-            formattedQuantities = quantities[0];
-          } else if (quantities.length === 2) {
-            formattedQuantities = `${quantities[0]} e ${quantities[1]}`;
-          } else {
-            const lastQuantity = quantities.pop();
-            formattedQuantities = `${quantities.join(', ')} e ${lastQuantity}`;
-          }
-          
-          let productText = `${item.name}: ${formattedQuantities}`;
-          if (item.selectedColor) productText += ` - Cor: ${item.selectedColor}`;
-          if (item.itemNotes) productText += ` - Obs: ${item.itemNotes}`;
-          
-          return productText;
-        }).join('\n');
-        
-        await sendQuoteConfirmationEmail({
-          clientName: formData.name,
-          clientEmail: formData.email,
-          clientPhone: formData.phone,
-          clientCompany: formData.company,
-          subject: 'Solicitação de Orçamento',
-          message: `Produtos solicitados:\n${productsList}${observations ? `\n\nObservações gerais: ${observations}` : ''}`
-        });
-        console.log(`[${new Date().toISOString()}] [CART] ✅ E-mail de confirmação enviado`);
+        // E-mail de confirmação é enviado pelo backend com cópia interna
+        console.log(`[${new Date().toISOString()}] [CART] ℹ️ E-mail de confirmação será enviado pelo backend`);
       } catch (emailError) {
         console.error(`[${new Date().toISOString()}] [CART] ❌ Erro ao enviar e-mail:`, emailError);
       }
@@ -577,22 +534,12 @@ export default function Cart() {
                               className="w-full p-2 border border-gray-300 rounded-md text-sm bg-white"
                             >
                               <option value="">Selecionar cor</option>
-                              {product?.colorVariations?.map((variation: any) => (
-                                <option key={variation.color} value={variation.color}>
-                                  {variation.color.toUpperCase()}
-                                </option>
-                              )) || (
-                                // Fallback para cores padrão se não houver colorVariations
-                                <>
-                                  <option value="AZUL">AZUL</option>
-                                  <option value="PRETO">PRETO</option>
-                                  <option value="VERMELHO">VERMELHO</option>
-                                  <option value="VERDE">VERDE</option>
-                                  <option value="BRANCO">BRANCO</option>
-                                  <option value="AMARELO">AMARELO</option>
-                                  <option value="ROSA">ROSA</option>
-                                  <option value="CINZA">CINZA</option>
-                                </>
+                              {Array.isArray(product?.colorVariations) && product.colorVariations.length > 0 && (
+                                product.colorVariations.map((variation: any) => (
+                                  <option key={variation.color} value={variation.color}>
+                                    {variation.color.toUpperCase()}
+                                  </option>
+                                ))
                               )}
                             </select>
                           </td>
@@ -710,22 +657,12 @@ export default function Cart() {
                           className="w-full p-2 border border-gray-300 rounded-md text-sm bg-white"
                         >
                           <option value="">Selecionar cor</option>
-                          {product?.colorVariations?.map((variation: any) => (
-                            <option key={variation.color} value={variation.color}>
-                              {variation.color.toUpperCase()}
-                            </option>
-                          )) || (
-                            // Fallback para cores padrão se não houver colorVariations
-                            <>
-                              <option value="AZUL">AZUL</option>
-                              <option value="PRETO">PRETO</option>
-                              <option value="VERMELHO">VERMELHO</option>
-                              <option value="VERDE">VERDE</option>
-                              <option value="BRANCO">BRANCO</option>
-                              <option value="AMARELO">AMARELO</option>
-                              <option value="ROSA">ROSA</option>
-                              <option value="CINZA">CINZA</option>
-                            </>
+                          {Array.isArray(product?.colorVariations) && product.colorVariations.length > 0 && (
+                            product.colorVariations.map((variation: any) => (
+                              <option key={variation.color} value={variation.color}>
+                                {variation.color.toUpperCase()}
+                              </option>
+                            ))
                           )}
                         </select>
                       </div>

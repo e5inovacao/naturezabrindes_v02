@@ -198,7 +198,7 @@ export const quotesApi = {
     }>;
     notes?: string;
   }) {
-    return apiRequest<ApiResponse<any>>('/quotes', {
+    return apiRequest<ApiResponse<any>>('/quotes/v2', {
       method: 'POST',
       body: JSON.stringify(quoteData),
     });

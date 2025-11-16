@@ -468,13 +468,14 @@ async function handleProducts(request: Request, supabase: any, pathSegments: str
 }
 
 // Quotes API handlers
-async function handleQuotes(request: Request, supabase: any, pathSegments: string[]) {
+async function handleQuotes(request: Request, supabase: any, pathSegments: string[], env: any) {
   const method = request.method;
 
   try {
     if (method === 'POST' && pathSegments.length === 0) {
       // POST /api/quotes - Create new quote
       const body = await request.json();
+      const apiKey = env?.VITE_BREVO_API_KEY || env?.BREVO_API_KEY;
       
       const { data, error } = await supabase
         .from('orcamentos')
@@ -489,6 +490,8 @@ async function handleQuotes(request: Request, supabase: any, pathSegments: strin
         .single();
 
       if (error) throw error;
+
+      // Email de confirmação é enviado pelo backend (SMTP Zoho). Nenhum envio é feito aqui.
 
       return apiResponse({
         success: true,
@@ -530,7 +533,7 @@ async function handleQuotes(request: Request, supabase: any, pathSegments: strin
             },
           },
         });
-      } else if (pathSegments[0] === 'stats' && pathSegments[1] === 'dashboard') {
+    } else if (pathSegments[0] === 'stats' && pathSegments[1] === 'dashboard') {
         // GET /api/quotes/stats/dashboard
         const { data, error } = await supabase
           .from('orcamentos')
@@ -632,7 +635,7 @@ export async function onRequest(context: any) {
     } else if (pathSegments[0] === 'products') {
       response = await handleProducts(request, supabase, pathSegments.slice(1));
     } else if (pathSegments[0] === 'quotes') {
-      response = await handleQuotes(request, supabase, pathSegments.slice(1));
+      response = await handleQuotes(request, supabase, pathSegments.slice(1), env);
     } else if (pathSegments[0] === 'proxy') {
       response = await handleProxy(request, pathSegments.slice(1));
     } else {
